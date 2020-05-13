@@ -14,8 +14,8 @@
 #########################################################################################
 ###                             CUSTOMIZING SECTION START                             ###
 
-SID=BGP
-INSTNO=30
+
+
 VIPL="10.16.75.230/22"
 SERVER1=sla70076
 SERVER2=sla70075
@@ -29,7 +29,6 @@ SERVER2=sla70075
 ###                                                                                   ###
 #########################################################################################
 
-SIDADM=$(echo ${SID} | tr '[:upper:]' '[:lower:]' )"adm"
 VIP=$(echo ${VIPL} |  awk -F"/" '{print $1}')
 LHOST=$(hostname)
 LBL="eth0:9"
@@ -44,7 +43,7 @@ DOWN=0
 
 is_alive () {
 
-ping -c 4 ${VIP} > /dev/null
+ping -c 4 ${VIP} > /dev/null 2>&1
 
 if [ "$?" -eq 0 ]; then
    ip add | grep -w "${VIP}" > /dev/null 2>&1
@@ -110,12 +109,16 @@ fi
  }
  
  check_sap () {
+ 
  # Expecting GREEN in UP if its running 
  UP=$(echo -e $(su - ${SIDADM} -c "sapcontrol -nr ${INSTNO} -function GetSystemInstanceList")| tr -d ',' | awk -F"[ ]" '{ print $18}')
  # Find the systems instance server name
  SAPHOST=$(echo -e $(su - ${SIDADM} -c "sapcontrol -nr ${INSTNO} -function GetSystemInstanceList")| tr -d ',' | awk -F"[ ]" '{ print $12}')
  # Find System Replication Mode
  SRMODE=$(echo -e $(su - ${SIDADM} -c "hdbnsutil  -sr_stateConfiguration | grep -w mode") | awk '{print $2}')
+ # Find possibel takeover. If number of Tiers is higher than one, all OK
+ TIERS=$(echo -e $(su - ${SIDADM} -c "hdbnsutil  -sr_stateHostMapping | grep -w Tier| wc -l"))
+ 
   }
 
 
@@ -130,8 +133,8 @@ if [ "${UP}" == "GREEN" ]; then
 	  if [ "$yn" == "y" ]; then
 	     echo "proceeding"
 	  else
-        echo "exiting"
-		exit 2
+         echo "exiting"
+         exit 2
       fi		
    fi
 else
@@ -140,6 +143,40 @@ fi
 
 }
 
+find_sap () {
+
+if [ -f "/usr/sap/sapservices" ]; then
+   if [ "$(cat /usr/sap/sapservices | grep adm | grep -v daa | wc -l)" -ne "1" ]; then
+      echo "More than one instance found on this system. Exiting"
+	  exit 4
+   else	  
+      SIDSTRING=$(echo -e $(grep '[b-z1-9]adm$' /usr/sap/sapservices))
+      ADMIN=${SIDSTRING: -6}
+      SAPSID=$(echo ${ADMIN: 0:3} | tr '[:lower:]' '[:upper:]' )
+      INST=$(basename /usr/sap/${SAPSID}/HDB*)
+      INSTNO=${INST: -2}
+      SID=${SAPSID}
+      SIDADM=${ADMIN}
+      SIDL=${#SID}
+	  if [ "${#SID}" -ne "3" ]; then
+         echo "Something went wrong finding out SID. Length of SID must be 3 but it is ${#SID} ."
+	     exit 3
+      fi
+   fi
+else
+   echo "No sapservices file found"
+fi   
+
+}
+
+
+give_sap_info () {
+
+echo "The Systemreplication Status is: ${SRMODE}"
+echo "The system status is: ${UP}"
+echo "Number of Tiers found: ${TIERS}"
+
+}
 #########################################################################################
 ################                                                         ################
 #############                                                                 ###########
@@ -152,13 +189,22 @@ fi
 ##
 ## Start and run functions:
 ##
-
+find_sap
 is_allowed
 check_sap
 if [ "${SRMODE}" == "none" ];then
    echo "Systemreplication is not enabled. do the tasks manual"
    exit 2
 fi   
+if [ "${TIERS}" -eq "1" ];then
+   echo "###############################################################"
+   echo "#                                                             #"
+   echo "--> Only one tier found. Maybe takeover was already done      #"
+   echo "--> Be careful!                                               #"
+   echo "#                                                             #"
+   echo "###############################################################"
+fi   
+
 
 case "$1" in
     -c )
@@ -170,6 +216,10 @@ case "$1" in
         add_ip;;	
 	-h )
         check_sap;;
+    -f )
+        find_sap;;
+    -i )
+        give_sap_info;;	
 	*)
         echo "Usage: -c | -r | -a";	
    
