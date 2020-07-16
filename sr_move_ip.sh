@@ -17,8 +17,8 @@
 
 
 VIPL="10.16.75.230/22"
-SERVER1=sla70076
-SERVER2=sla70075
+SERVER1=<server1>
+SERVER2=<server2>
 
 
 ###                             CUSTOMIZING SECTION END                              ####
@@ -221,7 +221,7 @@ case "$1" in
     -i )
         give_sap_info;;	
 	*)
-        echo "Usage: -c | -r | -a";	
+        echo "Usage: -c for check IP | -r removes IP | -a is adding IP | -h is looking for SAP | -i provides Info";	
    
 esac
 
